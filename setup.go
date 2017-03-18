@@ -1,10 +1,14 @@
 package radiusauth
 
 import (
+	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/boltdb/bolt"
 	"github.com/mholt/caddy"
 	"github.com/mholt/caddy/caddyhttp/httpserver"
 )
@@ -30,7 +34,27 @@ func setup(c *caddy.Controller) error {
 		radius.Next = next
 		radius.SiteRoot = root
 		radius.Config = configs
+		radius.db, err = bolt.Open("radiusauth.db", 0600, &bolt.Options{Timeout: 1 * time.Second})
+		// create bucket
+		radius.db.Update(func(tx *bolt.Tx) error {
+			_, err := tx.CreateBucketIfNotExists([]byte("users"))
+			if err != nil {
+				return fmt.Errorf("create bucket: %s", err)
+			}
+			return nil
+		})
 		return radius
+	})
+
+	c.OnStartup(func() error {
+		fmt.Println("***** CACHE PURGING *****")
+		count, err := cachepurge(radius.db)
+		if err != nil {
+			fmt.Println("purge error ", err)
+			return err
+		}
+		fmt.Printf("***** %d deleted\n", count)
+		return nil
 	})
 	return nil
 }
@@ -47,6 +71,7 @@ func parseRadiusConfig(c *caddy.Controller) (radiusConfig, error) {
 	config.nasid = nasid
 
 	ignoredPaths := []string{}
+	securePaths := []string{}
 
 	for c.Next() {
 		// No extra args expected
@@ -64,7 +89,9 @@ func parseRadiusConfig(c *caddy.Controller) (radiusConfig, error) {
 				if err != nil {
 					return config, c.Errf("radius: invalid server address %v", server)
 				}
+				//TODO validate IP address & port number
 				config.Server = net.JoinHostPort(host, port)
+
 			case "secret":
 				config.Secret = c.RemainingArgs()[0]
 
@@ -90,6 +117,29 @@ func parseRadiusConfig(c *caddy.Controller) (radiusConfig, error) {
 					ignoredPaths = append(ignoredPaths, path)
 				}
 
+			case "only":
+				paths := c.RemainingArgs()
+				if len(paths) == 0 {
+					return config, c.ArgErr()
+				}
+				for _, path := range paths {
+					if path == "/" {
+						return config, c.Errf("ldap: ignore '/' entirely - disable ldap instead")
+					}
+					if !strings.HasPrefix(path, "/") {
+						return config, c.Errf(`radiusauth: invalid path "%v" (must start with /)`, path)
+					}
+					securePaths = append(securePaths, path)
+				}
+
+			case "cachetimeout":
+				timeout := c.RemainingArgs()[0]
+				t, err := strconv.Atoi(timeout)
+				if err != nil {
+					return config, c.Errf(`radiusauth: invalid timeout "%v" (must be an integer)`, timeout)
+				}
+				config.cachetimeout = time.Duration(t) * time.Second
+
 			default:
 				return config, c.Errf("radius: unknown property '%s'", c.Val())
 			}
@@ -100,8 +150,14 @@ func parseRadiusConfig(c *caddy.Controller) (radiusConfig, error) {
 		return config, c.ArgErr()
 	}
 
+	if len(ignoredPaths) != 0 && len(securePaths) != 0 {
+		return config, c.Errf("radiusauth: must use 'only' or 'except' path filters, but not both!")
+	}
 	if len(ignoredPaths) != 0 {
 		config.requestFilter = &ignoredPathFilter{ignoredPaths: ignoredPaths}
+	}
+	if len(securePaths) != 0 {
+		config.requestFilter = &securedPathFilter{securedPaths: securePaths}
 	}
 
 	return config, nil
