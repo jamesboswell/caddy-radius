@@ -53,7 +53,7 @@ func setup(c *caddy.Controller) error {
 			fmt.Println("purge error ", err)
 			return err
 		}
-		fmt.Printf("***** %d deleted\n", count)
+		fmt.Printf("***** [radiusauth] %d cache entries deleted\n", count)
 		return nil
 	})
 	return nil
@@ -86,7 +86,7 @@ func parseRadiusConfig(c *caddy.Controller) (radiusConfig, error) {
 
 				host, port, err := net.SplitHostPort(server)
 				if err != nil {
-					return config, c.Errf("radius: invalid server address %v", server)
+					return config, c.Errf("[radiusauth]: invalid server address %v", server)
 				}
 				//TODO validate IP address & port number
 				config.Server = net.JoinHostPort(host, port)
@@ -108,10 +108,10 @@ func parseRadiusConfig(c *caddy.Controller) (radiusConfig, error) {
 				}
 				for _, path := range paths {
 					if path == "/" {
-						return config, c.Errf("ldap: ignore '/' entirely - disable ldap instead")
+						return config, c.Errf("[radiusauth]: ignore '/' entirely - disable [radiusauth] instead")
 					}
 					if !strings.HasPrefix(path, "/") {
-						return config, c.Errf(`radiusauth: invalid path "%v" (must start with /)`, path)
+						return config, c.Errf(`[radiusauth]: invalid path "%v" (must start with /)`, path)
 					}
 					ignoredPaths = append(ignoredPaths, path)
 				}
@@ -123,10 +123,10 @@ func parseRadiusConfig(c *caddy.Controller) (radiusConfig, error) {
 				}
 				for _, path := range paths {
 					if path == "/" {
-						return config, c.Errf("ldap: ignore '/' entirely - disable ldap instead")
+						return config, c.Errf("[radiusauth]: ignore '/' entirely - disable [radiusauth] instead")
 					}
 					if !strings.HasPrefix(path, "/") {
-						return config, c.Errf(`radiusauth: invalid path "%v" (must start with /)`, path)
+						return config, c.Errf(`[radiusauth]: invalid path "%v" (must start with /)`, path)
 					}
 					securePaths = append(securePaths, path)
 				}
@@ -142,12 +142,12 @@ func parseRadiusConfig(c *caddy.Controller) (radiusConfig, error) {
 				timeout := c.RemainingArgs()[0]
 				t, err := strconv.Atoi(timeout)
 				if err != nil {
-					return config, c.Errf(`radiusauth: invalid timeout "%v" (must be an integer)`, timeout)
+					return config, c.Errf(`[radiusauth]: invalid timeout "%v" (must be an integer)`, timeout)
 				}
 				config.cachetimeout = time.Duration(t) * time.Second
 
 			default:
-				return config, c.Errf("radius: unknown property '%s'", c.Val())
+				return config, c.Errf("[radiusauth]: unknown property '%s'", c.Val())
 			}
 		}
 	}
@@ -157,7 +157,7 @@ func parseRadiusConfig(c *caddy.Controller) (radiusConfig, error) {
 	}
 
 	if len(ignoredPaths) != 0 && len(securePaths) != 0 {
-		return config, c.Errf("radiusauth: must use 'only' or 'except' path filters, but not both!")
+		return config, c.Errf("[radiusauth]: must use 'only' or 'except' path filters, but not both!")
 	}
 	if len(ignoredPaths) != 0 {
 		config.requestFilter = &ignoredPathFilter{ignoredPaths: ignoredPaths}

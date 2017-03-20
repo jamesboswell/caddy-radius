@@ -1,4 +1,5 @@
 # caddy-radius
+[![GoDoc](https://godoc.org/github.com/jamesboswell/caddy-radius?status.svg)](https://godoc.org/github.com/jamesboswell/caddy-radius)
 
 caddy-radius is a [Caddy](https://caddyserver.com/) plugin that implements
 HTTP Basic Access Authentication using a [RADIUS](https://en.wikipedia.org/wiki/RADIUS) server for user authentications.
@@ -41,7 +42,7 @@ radiusauth {
         server 1.2.3.4:1812
         secret SuperAWesomeSecret
         realm  "RADIUS Auth"
-        except /public
+        except /public /assets /images
         cache  /var/cache
         cachetimeout 30
 }
@@ -49,21 +50,26 @@ radiusauth {
 * server - RADIUS server in host:port format
 * secret - RADIUS shared secret
 * realm  - Basic Auth realm message (ex: ACME Inc.)
-* except - path to NOT enable authentication on
+* except - path(s) to NOT enable authentication on
+* only   - path(s) to ONLY enable authenticaiton on
 * cache  - location to store cache file
 * cachetimeout - time in seconds authentication entries should be cached
 
+> Filtering:
+You can only have `except` OR `only` but not both! Whitelist your 'exceptions' OR blacklist your 'only' paths to filter
 
 ## TODO:
 - [ ] Implement RADIUS server failover
-- [ ] finish path filtering (needs more testing)
 - [ ] allow disabling of cache
-- [x]every HTTP GET is a RADIUS transaction, need to reduce
+- [ ] Windows testing
+- [x] finish path filtering (needs more testing)
+- [x] every HTTP GET is a RADIUS transaction, need to reduce
   * ~~implement some kind of cache~~
     * ~~bcrypt hash of user/password that expires at X minutes~~
 
 #### Inspired by
 caddy-radius draws on ideas from  [mod_auth_xradius](http://www.outoforder.cc/projects/httpd/mod_auth_xradius/) for Apache which inspired it's creation
+
 
 ## DISCLAIMER
 This software is provided as is for free and public use.  No warranties or claims of quality or security are made.  Users should perform their own security analysis and acknowledge and accept the risks as stated.

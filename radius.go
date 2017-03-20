@@ -1,3 +1,11 @@
+// Package radiusauth provides HTTP Basic Authentication for Caddy against
+// RFC2865 RADIUS Servers
+//
+// Uses standard HTTP Basic Authentication authorization headers with user
+// credential authentication performed by a RADIUS server. Path filtering
+// [except|only] allows toggling authentication on a per path basis.
+//
+// A local authentication cache is utilized to reduce repeat RADIUS calls.
 package radiusauth
 
 import (
@@ -12,7 +20,15 @@ import (
 	"github.com/mholt/caddy/caddyhttp/httpserver"
 )
 
-// RADIUS is the
+// RADIUS is middleware to protect resources with a username and password.
+// HTTP Basic Authentication is performed with username and password being
+// authenticated against a RADIUS server. Local caching is performed to reduce
+// the number of RADIUS calls
+//
+// Note that HTTP Basic Authentication is not secure by itself and should
+// not be used to protect important assets without HTTPS. Even then, the
+// security of HTTP Basic Auth is disputed. Use discretion when deciding
+// what to protect with BasicAuth.
 type RADIUS struct {
 	// Connection
 	Next     httpserver.Handler
@@ -32,7 +48,7 @@ type radiusConfig struct {
 	cachetimeout  time.Duration
 }
 
-// ServeHTTP implements the http.Handler
+// ServeHTTP implements the httpserver.Handler interface.
 func (a RADIUS) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 
 	realm := "Basic realm=" + fmt.Sprintf("\"%s\"", a.Config.realm)
