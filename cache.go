@@ -15,8 +15,8 @@ type user struct {
 	TTL  time.Time `json:"ttl"`
 }
 
-func cachecheck(r RADIUS, username string, password string) (bool, error) {
-	cached, err := cacheseek(r, username, password)
+func cacheCheck(r RADIUS, username string, password string) (bool, error) {
+	cached, err := cacheSeek(r, username, password)
 	if err != nil {
 		return false, err
 	}
@@ -26,9 +26,9 @@ func cachecheck(r RADIUS, username string, password string) (bool, error) {
 	return false, nil
 }
 
-func cachewrite(r RADIUS, username string, password string) (bool, error) {
+func cacheWrite(r RADIUS, username string, password string) error {
 	db := r.db
-	db.Update(func(tx *bolt.Tx) error {
+	err := db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte("users"))
 		crypt, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 
@@ -38,10 +38,13 @@ func cachewrite(r RADIUS, username string, password string) (bool, error) {
 		err := b.Put([]byte(username), val)
 		return err
 	})
-	return false, nil
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
-func cacheseek(r RADIUS, username string, password string) (bool, error) {
+func cacheSeek(r RADIUS, username string, password string) (bool, error) {
 
 	db := r.db
 	u := user{}
@@ -52,11 +55,9 @@ func cacheseek(r RADIUS, username string, password string) (bool, error) {
 		v := b.Get([]byte(username))
 		// If usenrame (key) not found
 		if v == nil {
-			err := fmt.Sprintf("User: %s NOT FOUND in cache\n", username)
-			return errors.New(err)
+			return fmt.Errorf("User: %s NOT FOUND in cache", username)
 		}
-		fmt.Printf("User: %s found with pass %s\n", username, v)
-
+		// Unmarshal value v into user{hash, ttl}
 		json.Unmarshal(v, &u)
 
 		// Compare provided Basic Auth password to cached bcrypt Hash
@@ -65,19 +66,19 @@ func cacheseek(r RADIUS, username string, password string) (bool, error) {
 		if err2 != nil {
 			return errors.New("User password hash DOES NOT match, force RADIUS auth")
 		}
-
 		return nil
 	})
-	// if username not found return false, and err
+	// if username not found or password mismatch in cache return false, and err
 	if err != nil {
 		return false, err
 	}
 
-	t1 := u.TTL
-	age := time.Since(t1)
-	fmt.Println(age)
+	// Check if cache entry is older than cachetimeout
+	// If entry is older, delete entry and return false
+	//  to force a new RADIUS authentication
+	age := time.Since(u.TTL)
 	if age > r.Config.cachetimeout {
-		delerr := cachedelete(r, username)
+		delerr := cacheDelete(r, username)
 		fmt.Println("DELCACHE called ****")
 		if delerr != nil {
 			panic(err)
@@ -85,30 +86,28 @@ func cacheseek(r RADIUS, username string, password string) (bool, error) {
 		return false, errors.New("Cache entry has expired, force RADIUS auth")
 	}
 
+	// Handle any other errors
 	if err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-func cachedelete(r RADIUS, username string) error {
+func cacheDelete(r RADIUS, username string) error {
 	db := r.db
 	db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte("users"))
 		err := b.Delete([]byte(username))
-		// If usenrame (key) not found
+		// If username (key) not found
 		if err == nil {
-			err := fmt.Sprintf("User: %s NOT FOUND in cache\n", username)
-			return errors.New(err)
-			// return err
+			return fmt.Errorf("User: %s NOT FOUND in cache", username)
 		}
-		fmt.Printf("User: %s deleted from cache\n", username)
 		return nil
 	})
 	return nil
 }
 
-func cachepurge(db *bolt.DB) (int, error) {
+func cachePurge(db *bolt.DB) (int, error) {
 	var count int
 	u := user{}
 	err := db.Update(func(tx *bolt.Tx) error {

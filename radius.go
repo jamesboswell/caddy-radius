@@ -32,7 +32,7 @@ type radiusConfig struct {
 	cachetimeout  time.Duration
 }
 
-// ServeHTTP implements the httpserver.Handler interface.
+// ServeHTTP implements the http.Handler
 func (a RADIUS) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 
 	realm := "Basic realm=" + fmt.Sprintf("\"%s\"", a.Config.realm)
@@ -54,9 +54,8 @@ func (a RADIUS) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 	}
 	// cacheseek checks if provided Basic Auth credentials are cached and match
 	// if credentials do not match cached entry, force RADIUS authentication
-	isCached, err := cacheseek(a, username, password)
+	isCached, err := cacheSeek(a, username, password)
 	if isCached == true && err == nil {
-		fmt.Printf("CACHED:: %t, user: %s\n", isCached, username)
 		return a.Next.ServeHTTP(w, r)
 	}
 	if err != nil {
@@ -65,18 +64,11 @@ func (a RADIUS) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 
 	// Provided credentials not found in cache or did not match
 	// send username, password to RADIUS server for authentication
-
-	isAuthenticated, err := auth(a, username, password)
-
-	// if RADIUS authenticated, cache the username, password entry
-	if isAuthenticated {
-		fmt.Printf("Cache-write %s : %s\n", username, password)
-		cachewrite(a, username, password)
-	}
+	isAuthenticated, err := auth(a.Config, username, password)
 
 	// Handle auth errors
 	if err != nil {
-		// If Radius server timing out return 504 - StatusGatewayTimeout
+		// If RADIUS server timing out return 504 - StatusGatewayTimeout
 		if isTimeout(err) {
 			return http.StatusGatewayTimeout, err
 		}
@@ -84,19 +76,24 @@ func (a RADIUS) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 		return http.StatusInternalServerError, err
 	}
 
+	// if RADIUS authentication failed, return 401
 	if !isAuthenticated {
-		fmt.Println("Not authorized ", username) //TODO remove
 		w.Header().Set("WWW-Authenticate", realm)
 		return http.StatusUnauthorized, nil
 	}
-
+	// if RADIUS authenticated, cache the username, password entry return Handler
+	if isAuthenticated {
+		if err := cacheWrite(a, username, password); err != nil {
+			return http.StatusInternalServerError, fmt.Errorf("[radiusauth] cache-write for %s FAILED: %s", username, err)
+		}
+	}
 	return a.Next.ServeHTTP(w, r)
 }
 
-func auth(a RADIUS, username string, password string) (bool, error) {
-
-	r := a.Config
+// auth generates a RADIUS authentication request for username
+func auth(r radiusConfig, username string, password string) (bool, error) {
 	// Create a new RADIUS packet for Access-Request
+	// NAS-Identifier required by some servers such as CiscoSecure ACS
 	packet := radius.New(radius.CodeAccessRequest, []byte(r.Secret))
 	packet.Add("User-Name", username)
 	packet.Add("User-Password", password)
@@ -107,9 +104,8 @@ func auth(a RADIUS, username string, password string) (bool, error) {
 		ReadTimeout: 3 * time.Second,
 	}
 
-	hostport := r.Server
-	reply, err := client.Exchange(packet, hostport)
-	fmt.Println("****RADIUS server called: ", hostport)
+	radiusServer := r.Server
+	reply, err := client.Exchange(packet, radiusServer)
 	if err != nil {
 		if isTimeout(err) {
 			return false, err
@@ -122,6 +118,7 @@ func auth(a RADIUS, username string, password string) (bool, error) {
 	if reply.Code == radius.CodeAccessAccept {
 		return true, nil
 	}
+	// Any other reply is a failed authentication
 	return false, nil
 }
 

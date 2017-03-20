@@ -47,8 +47,8 @@ func setup(c *caddy.Controller) error {
 	})
 
 	c.OnStartup(func() error {
-		fmt.Println("***** CACHE PURGING *****")
-		count, err := cachepurge(radius.db)
+		fmt.Println("***** [radiusauth] CACHE PURGING *****")
+		count, err := cachePurge(radius.db)
 		if err != nil {
 			fmt.Println("purge error ", err)
 			return err
@@ -83,7 +83,6 @@ func parseRadiusConfig(c *caddy.Controller) (radiusConfig, error) {
 			switch c.Val() {
 			case "server":
 				server := c.RemainingArgs()[0]
-				// spew.Dump(server)
 
 				host, port, err := net.SplitHostPort(server)
 				if err != nil {
@@ -195,13 +194,11 @@ func isValidPath(fp string) bool {
 	if _, err := os.Stat(fp); err == nil {
 		return true
 	}
-
 	// Attempt to create it
 	var d []byte
 	if err := ioutil.WriteFile(fp, d, 0644); err == nil {
 		os.Remove(fp) // And delete it
 		return true
 	}
-
 	return false
 }
