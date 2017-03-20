@@ -28,6 +28,7 @@ type radiusConfig struct {
 	nasid         string
 	realm         string
 	requestFilter filter
+	cache         string
 	cachetimeout  time.Duration
 }
 
@@ -53,9 +54,9 @@ func (a RADIUS) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 	}
 	// cacheseek checks if provided Basic Auth credentials are cached and match
 	// if credentials do not match cached entry, force RADIUS authentication
-	cached, err := cacheseek(a, username, password)
-	if cached == true && err == nil {
-		fmt.Printf("CACHED:: %t, user: %s\n", cached, username)
+	isCached, err := cacheseek(a, username, password)
+	if isCached == true && err == nil {
+		fmt.Printf("CACHED:: %t, user: %s\n", isCached, username)
 		return a.Next.ServeHTTP(w, r)
 	}
 	if err != nil {
@@ -107,7 +108,7 @@ func auth(a RADIUS, username string, password string) (bool, error) {
 	}
 
 	hostport := r.Server
-	received, err := client.Exchange(packet, hostport)
+	reply, err := client.Exchange(packet, hostport)
 	fmt.Println("****RADIUS server called: ", hostport)
 	if err != nil {
 		if isTimeout(err) {
@@ -118,7 +119,7 @@ func auth(a RADIUS, username string, password string) (bool, error) {
 	}
 
 	// RADIUS Access-Accept is a successful authentication
-	if received.Code == radius.CodeAccessAccept {
+	if reply.Code == radius.CodeAccessAccept {
 		return true, nil
 	}
 	return false, nil

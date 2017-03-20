@@ -2,8 +2,10 @@ package radiusauth
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -30,19 +32,17 @@ func setup(c *caddy.Controller) error {
 
 	radius := RADIUS{}
 
+	db, err := createCacheDB(configs.cache)
+	if err != nil {
+		return err
+	}
+
 	cfg.AddMiddleware(func(next httpserver.Handler) httpserver.Handler {
 		radius.Next = next
 		radius.SiteRoot = root
 		radius.Config = configs
-		radius.db, err = bolt.Open("radiusauth.db", 0600, &bolt.Options{Timeout: 1 * time.Second})
-		// create bucket
-		radius.db.Update(func(tx *bolt.Tx) error {
-			_, err := tx.CreateBucketIfNotExists([]byte("users"))
-			if err != nil {
-				return fmt.Errorf("create bucket: %s", err)
-			}
-			return nil
-		})
+		// radius.db, err = bolt.Open("/var/cache/radiusauth.db", 0600, &bolt.Options{Timeout: 1 * time.Second})
+		radius.db = db
 		return radius
 	})
 
@@ -132,6 +132,13 @@ func parseRadiusConfig(c *caddy.Controller) (radiusConfig, error) {
 					securePaths = append(securePaths, path)
 				}
 
+			case "cache":
+				fp := c.RemainingArgs()
+				if len(fp) == 0 {
+					return config, c.ArgErr()
+				}
+				config.cache = fp[0]
+
 			case "cachetimeout":
 				timeout := c.RemainingArgs()[0]
 				t, err := strconv.Atoi(timeout)
@@ -161,4 +168,40 @@ func parseRadiusConfig(c *caddy.Controller) (radiusConfig, error) {
 	}
 
 	return config, nil
+}
+
+func createCacheDB(fp string) (*bolt.DB, error) {
+	if !strings.HasSuffix(fp, "/") && runtime.GOOS != "windows" {
+		fp = fp + "/"
+	}
+	fp = fp + "radiusauth.db"
+	if isValidPath(fp) {
+		b, err := bolt.Open(fp, 0600, &bolt.Options{Timeout: 1 * time.Second})
+		// create bucket
+		b.Update(func(tx *bolt.Tx) error {
+			_, err2 := tx.CreateBucketIfNotExists([]byte("users"))
+			if err2 != nil {
+				return fmt.Errorf("create bucket: %s", err2)
+			}
+			return nil
+		})
+		return b, err
+	}
+	return nil, fmt.Errorf("Invalid path or permissions for cache %s", fp)
+}
+
+func isValidPath(fp string) bool {
+	// Check if file already exists
+	if _, err := os.Stat(fp); err == nil {
+		return true
+	}
+
+	// Attempt to create it
+	var d []byte
+	if err := ioutil.WriteFile(fp, d, 0644); err == nil {
+		os.Remove(fp) // And delete it
+		return true
+	}
+
+	return false
 }
