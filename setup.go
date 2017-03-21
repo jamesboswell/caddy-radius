@@ -41,7 +41,6 @@ func setup(c *caddy.Controller) error {
 		radius.Next = next
 		radius.SiteRoot = root
 		radius.Config = configs
-		// radius.db, err = bolt.Open("/var/cache/radiusauth.db", 0600, &bolt.Options{Timeout: 1 * time.Second})
 		radius.db = db
 		return radius
 	})

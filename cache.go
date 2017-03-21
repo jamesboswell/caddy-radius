@@ -2,7 +2,6 @@ package radiusauth
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -55,7 +54,7 @@ func cacheSeek(r RADIUS, username string, password string) (bool, error) {
 		v := b.Get([]byte(username))
 		// If usenrame (key) not found
 		if v == nil {
-			return fmt.Errorf("User: %s NOT FOUND in cache", username)
+			return fmt.Errorf("[radiusauth] User: %s NOT FOUND in cache", username)
 		}
 		// Unmarshal value v into user{hash, ttl}
 		json.Unmarshal(v, &u)
@@ -64,7 +63,7 @@ func cacheSeek(r RADIUS, username string, password string) (bool, error) {
 		// if different error
 		err2 := bcrypt.CompareHashAndPassword(u.Hash, []byte(password))
 		if err2 != nil {
-			return errors.New("User password hash DOES NOT match, force RADIUS auth")
+			return fmt.Errorf("[radiusauth] bcrypt hash DOES NOT match for %s, force RADIUS auth", username)
 		}
 		return nil
 	})
@@ -79,11 +78,10 @@ func cacheSeek(r RADIUS, username string, password string) (bool, error) {
 	age := time.Since(u.TTL)
 	if age > r.Config.cachetimeout {
 		delerr := cacheDelete(r, username)
-		fmt.Println("DELCACHE called ****")
 		if delerr != nil {
 			panic(err)
 		}
-		return false, errors.New("Cache entry has expired, force RADIUS auth")
+		return false, fmt.Errorf("[radiusauth] cache expired for %s, force RADIUS auth", username)
 	}
 
 	// Handle any other errors
@@ -100,7 +98,7 @@ func cacheDelete(r RADIUS, username string) error {
 		err := b.Delete([]byte(username))
 		// If username (key) not found
 		if err == nil {
-			return fmt.Errorf("User: %s NOT FOUND in cache", username)
+			return fmt.Errorf("[radiusauth] DELETE User: %s NOT FOUND in cache", username)
 		}
 		return nil
 	})
