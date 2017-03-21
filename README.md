@@ -13,22 +13,26 @@ When cached entries are older than `cachetimeout` a new RADIUS authentication wi
 
 If Authorization headers DO NOT match the cached entry for a particular user, a fresh RADIUS authentication will be performed.
 
-Authentication flow in pseudo-code
+### Authentication flow diagram
 ```
-if user in cache AND password matches:
-   if TTL > cachetimeout (expired):
-      perform RADIUS authentication
-   else GrantAccess
-if user in cache AND password DOES NOT match:
-    perform RADIUS authentication
-if user NOT in cache:
-    perform RADIUS authentication
-if RADIUS authentication successful:
-    add user to cache with TTL of cachetimeout
-    GrantAccess
-if RADIUS authentication NOT successful:
-    Deny Access
-    HTTP error 401
+                                    +-------------+                                 
+                                    |HTTP 401     |--------------------------+      
+                                    |Unauthorized |                          |      
+                                    +-------------+                          |      
+                                                                      Reject |      
+                                                                             |      
++------------+      +---------------+          +------------+        +--------+
+|HTTP request|------| secured path? |---------+|   cached?  |--------| RADIUS |
++------------+      +-------|-------+ yes      +------------+ no     +--------+
+                            |                         |                      |      
+                            |                         |                      |      
+                            |no                    yes|               Accept |      
+                            |                         |                      |      
+                            |                         |                      |      
+                      +-----|------+                  |                      |      
+                      |  Grant     |------------------+                      |      
+                      |  Access    |-----------------------------------------+
+                      +------------+
 ```
 
 ### RADIUS servers
