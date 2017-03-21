@@ -37,7 +37,7 @@ type RADIUS struct {
 	db       *bolt.DB
 }
 type radiusConfig struct {
-	Server        string
+	Server        []string
 	Secret        string
 	Timeout       int
 	Retries       int
@@ -120,20 +120,27 @@ func auth(r radiusConfig, username string, password string) (bool, error) {
 		ReadTimeout: 3 * time.Second,
 	}
 
-	radiusServer := r.Server
-	reply, err := client.Exchange(packet, radiusServer)
-	if err != nil {
-		if isTimeout(err) {
-			return false, err
+	for s, radiusServer := range r.Server {
+		reply, err := client.Exchange(packet, radiusServer)
+		if err != nil {
+			// Return err if all servers in pool have failed
+			if s == len(r.Server)-1 {
+				return false, fmt.Errorf("[radiusauth] All RADIUS servers failed %s", err)
+			}
+			if isTimeout(err) {
+				fmt.Println(err)
+				continue
+			}
+			//TODO handle other errors?
+			fmt.Println(err)
+			continue
 		}
-		//TODO handle other errors?
-		return false, err
+		// RADIUS Access-Accept is a successful authentication
+		if reply.Code == radius.CodeAccessAccept {
+			return true, nil
+		}
 	}
 
-	// RADIUS Access-Accept is a successful authentication
-	if reply.Code == radius.CodeAccessAccept {
-		return true, nil
-	}
 	// Any other reply is a failed authentication
 	return false, nil
 }

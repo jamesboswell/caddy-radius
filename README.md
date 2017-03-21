@@ -39,15 +39,15 @@ caddy-radius has been tested against CiscoSecure ACS 5.4 and FreeRADIUS 3.0.13
 Add a **radiusauth** term to your caddyfile
 ```
 radiusauth {
-        server 1.2.3.4:1812
+        server 192.0.2.10:1812 192.0.2.90:1812
         secret SuperAWesomeSecret
         realm  "RADIUS Auth"
         except /public /assets /images
         cache  /var/cache
-        cachetimeout 30
+        cachetimeout 300
 }
 ```
-* server - RADIUS server in host:port format
+* server - RADIUS server(s) in host:port format
 * secret - RADIUS shared secret
 * realm  - Basic Auth realm message (ex: ACME Inc.)
 * except - path(s) to NOT enable authentication on
@@ -59,7 +59,7 @@ radiusauth {
 You can only have `except` OR `only` but not both! Whitelist your 'exceptions' OR blacklist your 'only' paths to filter
 
 ## TODO:
-- [ ] Implement RADIUS server failover
+- [x] Implement RADIUS server failover
 - [ ] allow disabling of cache
 - [ ] Windows testing
 - [x] finish path filtering (needs more testing)

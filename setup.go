@@ -82,14 +82,15 @@ func parseRadiusConfig(c *caddy.Controller) (radiusConfig, error) {
 		for c.NextBlock() {
 			switch c.Val() {
 			case "server":
-				server := c.RemainingArgs()[0]
+				for _, server := range c.RemainingArgs() {
 
-				host, port, err := net.SplitHostPort(server)
-				if err != nil {
-					return config, c.Errf("[radiusauth]: invalid server address %v", server)
+					host, port, err := net.SplitHostPort(server)
+					if err != nil {
+						return config, c.Errf("[radiusauth]: invalid server address %v", server)
+					}
+					//TODO validate IP address & port number
+					config.Server = append(config.Server, net.JoinHostPort(host, port))
 				}
-				//TODO validate IP address & port number
-				config.Server = net.JoinHostPort(host, port)
 
 			case "secret":
 				config.Secret = c.RemainingArgs()[0]
@@ -152,7 +153,7 @@ func parseRadiusConfig(c *caddy.Controller) (radiusConfig, error) {
 		}
 	}
 
-	if config.Server == "" || config.Secret == "" {
+	if len(config.Server) == 0 || config.Secret == "" {
 		return config, c.ArgErr()
 	}
 
