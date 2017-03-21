@@ -51,15 +51,16 @@ type radiusConfig struct {
 // ServeHTTP implements the httpserver.Handler interface.
 func (a RADIUS) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 
-	realm := "Basic realm=" + fmt.Sprintf("\"%s\"", a.Config.realm)
 	// Pass-through when no paths match filter or no filters
 	// if filter not nil and auth is NOT required, then just return
 	if a.Config.requestFilter != nil && !a.Config.requestFilter.shouldAuthenticate(r) {
 		return a.Next.ServeHTTP(w, r)
 	}
 
+	// Check for HTTP Basic Authorization Headers and valid username, password
 	username, password, ok := r.BasicAuth()
 
+	realm := "Basic realm=" + fmt.Sprintf("\"%s\"", a.Config.realm)
 	if !ok {
 		w.Header().Set("WWW-Authenticate", realm)
 		return http.StatusUnauthorized, nil
@@ -68,6 +69,13 @@ func (a RADIUS) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 		w.Header().Set("WWW-Authenticate", realm)
 		return http.StatusUnauthorized, errors.New("[radiusauth] Blank username or password")
 	}
+
+	// Capture username into {user} placeholder for caddyfile log directive
+	// ex:  log / stdout "{remote} - {user} [{when}] {method} {uri} {proto} {status} {size}"
+	if rr, ok := w.(*httpserver.ResponseRecorder); ok && rr.Replacer != nil {
+		rr.Replacer.Set("user", username)
+	}
+
 	// cacheseek checks if provided Basic Auth credentials are cached and match
 	// if credentials do not match cached entry, force RADIUS authentication
 	isCached, err := cacheSeek(a, username, password)
