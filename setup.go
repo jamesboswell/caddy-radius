@@ -2,10 +2,9 @@ package radiusauth
 
 import (
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
-	"runtime"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -151,13 +150,13 @@ func parseRadiusConfig(c *caddy.Controller) (radiusConfig, error) {
 			}
 		}
 	}
-
+	// Must have a server and secret
 	if len(config.Server) == 0 || config.Secret == "" {
-		return config, c.ArgErr()
+		return config, c.Errf("[radiusauth]: server or secret undefined")
 	}
 
 	if len(ignoredPaths) != 0 && len(securePaths) != 0 {
-		return config, c.Errf("[radiusauth]: must use 'only' or 'except' path filters, but not both!")
+		return config, c.Errf("[radiusauth]: must use 'only' OR 'except' path filters, but not both!")
 	}
 	if len(ignoredPaths) != 0 {
 		config.requestFilter = &ignoredPathFilter{ignoredPaths: ignoredPaths}
@@ -169,36 +168,24 @@ func parseRadiusConfig(c *caddy.Controller) (radiusConfig, error) {
 	return config, nil
 }
 
+// createCacheDB creates a BoltDB database in fp file path
+// will return err if file cannot be created or bucket cannot be created
 func createCacheDB(fp string) (*bolt.DB, error) {
-	if !strings.HasSuffix(fp, "/") && runtime.GOOS != "windows" {
-		fp = fp + "/"
+	fp = filepath.Join(fp, "radiusauth.db")
+	// Open or create BoltDB if not exists
+	// set file readable only by Caddy process owner
+	// set file lock timeout to 1 sec
+	b, err := bolt.Open(fp, 0600, &bolt.Options{Timeout: 1 * time.Second})
+	if err != nil {
+		return nil, err
 	}
-	fp = fp + "radiusauth.db"
-	if isValidPath(fp) {
-		b, err := bolt.Open(fp, 0600, &bolt.Options{Timeout: 1 * time.Second})
-		// create bucket
-		b.Update(func(tx *bolt.Tx) error {
-			_, err2 := tx.CreateBucketIfNotExists([]byte("users"))
-			if err2 != nil {
-				return fmt.Errorf("create bucket: %s", err2)
-			}
-			return nil
-		})
-		return b, err
-	}
-	return nil, fmt.Errorf("Invalid path or permissions for cache %s", fp)
-}
-
-func isValidPath(fp string) bool {
-	// Check if file already exists
-	if _, err := os.Stat(fp); err == nil {
-		return true
-	}
-	// Attempt to create it
-	var d []byte
-	if err := ioutil.WriteFile(fp, d, 0644); err == nil {
-		os.Remove(fp) // And delete it
-		return true
-	}
-	return false
+	// create "users" bucket to store logins
+	err = b.Update(func(tx *bolt.Tx) error {
+		_, err2 := tx.CreateBucketIfNotExists([]byte("users"))
+		if err2 != nil {
+			return fmt.Errorf("create bucket: %s", err2)
+		}
+		return nil
+	})
+	return b, err
 }

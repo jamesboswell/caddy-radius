@@ -14,17 +14,6 @@ type user struct {
 	TTL  time.Time `json:"ttl"`
 }
 
-func cacheCheck(r RADIUS, username string, password string) (bool, error) {
-	cached, err := cacheSeek(r, username, password)
-	if err != nil {
-		return false, err
-	}
-	if cached {
-		return true, nil
-	}
-	return false, nil
-}
-
 func cacheWrite(r RADIUS, username string, password string) error {
 	db := r.db
 	err := db.Update(func(tx *bolt.Tx) error {
