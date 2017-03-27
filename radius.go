@@ -11,7 +11,6 @@ package radiusauth
 import (
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"time"
 
@@ -86,17 +85,14 @@ func (a RADIUS) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 		fmt.Println(err)
 	}
 
-	// Provided credentials not found in cache or did not match
-	// send username, password to RADIUS server for authentication
+	// send username, password to RADIUS server(s) for authentication
+	// returns isAuthenticated if authentication successful
+	// err if no RADIUS servers respond
 	isAuthenticated, err := auth(a.Config, username, password)
 
-	// Handle auth errors
+	// Return 500 Internal Server Error
+	// if connection to all RADIUS servers has failed
 	if err != nil {
-		// If RADIUS server timing out return 504 - StatusGatewayTimeout
-		if isTimeout(err) {
-			return http.StatusGatewayTimeout, err
-		}
-		// otherwise return 500 Internal Server Error
 		return http.StatusInternalServerError, err
 	}
 
@@ -135,11 +131,10 @@ func auth(r radiusConfig, username string, password string) (bool, error) {
 			if s == len(r.Server)-1 {
 				return false, fmt.Errorf("[radiusauth] All RADIUS servers failed %s", err)
 			}
-			if isTimeout(err) {
-				fmt.Println(err)
-				continue
-			}
 			//TODO handle other errors?
+			// TODO need a way to hook into Caddy error log
+			// without a return here as we want to finish loop
+			// to try all configured servers
 			fmt.Println(err)
 			continue
 		}
@@ -148,15 +143,6 @@ func auth(r radiusConfig, username string, password string) (bool, error) {
 			return true, nil
 		}
 	}
-
 	// Any other reply is a failed authentication
 	return false, nil
-}
-
-// isTimeout checks for net timeout
-func isTimeout(err error) bool {
-	if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
-		return true
-	}
-	return false
 }
