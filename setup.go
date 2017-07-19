@@ -145,6 +145,10 @@ func parseRadiusConfig(c *caddy.Controller) (radiusConfig, error) {
 				}
 				config.cachetimeout = time.Duration(t) * time.Second
 
+			case "nasid":
+				nasid := c.RemainingArgs()[0]
+				config.nasid = nasid
+
 			default:
 				return config, c.Errf("[radiusauth]: unknown property '%s'", c.Val())
 			}
