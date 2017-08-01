@@ -66,10 +66,10 @@ func TestRADIUSAuthParse(t *testing.T) {
 			}},
 		// Test 1 - test 'except' + 'only' filters - SHOULD FAIL
 		{`radiusauth {
-		      server 127.0.0.1:1812
-		      secret TOOMANYS3cret5
-          except /public
-          only /private
+              server 127.0.0.1:1812
+              secret TOOMANYS3cret5
+              except /public
+              only /private
 		      }`,
 			true, radiusConfig{
 
@@ -87,7 +87,7 @@ func TestRADIUSAuthParse(t *testing.T) {
 		{`radiusauth {
 		      server 127.0.0.1:1812
 		      secret TOOMANYS3cret5
-          only /private secret
+              only /private secret
 		      }`,
 			true, radiusConfig{
 
@@ -105,7 +105,7 @@ func TestRADIUSAuthParse(t *testing.T) {
 		{`radiusauth {
 		      server 127.0.0.1:1812
 		      secret TOOMANYS3cret5
-          except /public assests
+              except /public assests
 		      }`,
 			true, radiusConfig{
 
@@ -143,7 +143,7 @@ func TestRADIUSAuthParse(t *testing.T) {
 		}
 		if err != nil && test.shouldErr {
 			// If shouldErr don't test individual values
-			break
+			continue
 		}
 
 		a := &actualRadiusAuthConfigs
