@@ -58,6 +58,7 @@ radiusauth {
 * only   - path(s) to ONLY enable authenticaiton on
 * cache  - location to store cache file
 * cachetimeout - time in seconds authentication entries should be cached
+* nasid  - manually set the RADIUS NAS-ID (default is os hostname)
 
 > Filtering:
 You can only have `except` OR `only` but not both! Whitelist your 'exceptions' OR blacklist your 'only' paths to filter
