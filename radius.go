@@ -124,18 +124,19 @@ func auth(r radiusConfig, username string, password string) (bool, error) {
 		ReadTimeout: 3 * time.Second,
 	}
 
+	// Loop through all configured RADIUS servers until
+	// Access-Accept or Access-Reject or all servers exhausted
 	for s, radiusServer := range r.Server {
 		reply, err := client.Exchange(packet, radiusServer)
+		if reply != nil && reply.Code == radius.CodeAccessReject {
+			return false, nil
+		}
 		if err != nil {
+			fmt.Println(err) // TODO need a way to hook into Caddy error log
 			// Return err if all servers in pool have failed
 			if s == len(r.Server)-1 {
-				return false, fmt.Errorf("[radiusauth] All RADIUS servers failed %s", err)
+				return false, fmt.Errorf("[radiusauth] All RADIUS servers failed")
 			}
-			//TODO handle other errors?
-			// TODO need a way to hook into Caddy error log
-			// without a return here as we want to finish loop
-			// to try all configured servers
-			fmt.Println(err)
 			continue
 		}
 		// RADIUS Access-Accept is a successful authentication
