@@ -37,6 +37,9 @@ func cacheSeek(r RADIUS, username string, password string) (bool, error) {
 	db := r.db
 	u := user{}
 
+	if r.Config.cachetimeout == 0 {
+		return false, fmt.Errorf("[radiusauth] User caching disabled, force RADIUS auth")
+	}
 	// Look for username in BoltDB cache
 	err := db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte("users"))
