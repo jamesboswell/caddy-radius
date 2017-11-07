@@ -9,7 +9,6 @@
 package radiusauth
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -72,9 +71,9 @@ func (a RADIUS) ServeHTTP(w http.ResponseWriter, r *http.Request) (int, error) {
 
 	// Capture username into {user} placeholder for caddyfile log directive
 	// ex:  log / stdout "{remote} - {user} [{when}] {method} {uri} {proto} {status} {size}"
-	*r = *r.WithContext(context.WithValue(r.Context(),
-		httpserver.RemoteUserCtxKey, username))
-
+	// or:  log / stdout "{combined}"
+	repl := httpserver.NewReplacer(r, nil, "-")
+	repl.Set("user", username)
 	// cacheseek checks if provided Basic Auth credentials are cached and match
 	// if credentials do not match cached entry, force RADIUS authentication
 	isCached, err := cacheSeek(a, username, password)
