@@ -1,5 +1,5 @@
 # caddy-radius
-[![GoDoc](https://godoc.org/github.com/jamesboswell/caddy-radius?status.svg)](https://godoc.org/github.com/jamesboswell/caddy-radius)
+[![GoDoc](https://godoc.org/github.com/jamesboswell/caddy-radius?status.svg)](https://godoc.org/github.com/jamesboswell/caddy-radius) [![Build Status](https://travis-ci.org/jamesboswell/caddy-radius.svg?branch=master)](https://travis-ci.org/jamesboswell/caddy-radius)
 
 caddy-radius is a [Caddy](https://caddyserver.com/) plugin that implements
 HTTP Basic Access Authentication using a [RADIUS](https://en.wikipedia.org/wiki/RADIUS) server for user authentications.
