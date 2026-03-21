@@ -2,8 +2,7 @@ package radiusauth
 
 import (
 	"net/http"
-
-	"github.com/mholt/caddy/caddyhttp/httpserver"
+	"strings"
 )
 
 type filter interface {
@@ -19,8 +18,8 @@ type ignoredPathFilter struct {
 }
 
 func (s *securedPathFilter) shouldAuthenticate(r *http.Request) bool {
-	for _, securedPath := range s.securedPaths {
-		if httpserver.Path(r.URL.Path).Matches(securedPath) {
+	for _, p := range s.securedPaths {
+		if strings.HasPrefix(r.URL.Path, p) {
 			return true
 		}
 	}
@@ -28,8 +27,8 @@ func (s *securedPathFilter) shouldAuthenticate(r *http.Request) bool {
 }
 
 func (i *ignoredPathFilter) shouldAuthenticate(r *http.Request) bool {
-	for _, ignoredPath := range i.ignoredPaths {
-		if httpserver.Path(r.URL.Path).Matches(ignoredPath) {
+	for _, p := range i.ignoredPaths {
+		if strings.HasPrefix(r.URL.Path, p) {
 			return false
 		}
 	}
