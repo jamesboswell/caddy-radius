@@ -1,7 +1,7 @@
 # caddy-radius
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/jamesboswell/caddy-radius.svg)](https://pkg.go.dev/github.com/jamesboswell/caddy-radius)
-
+[![CI](https://github.com/jamesboswell/caddy-radius/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/jamesboswell/caddy-radius/actions/workflows/ci.yml)
 
 caddy-radius is a [Caddy v2](https://caddyserver.com/) plugin that provides HTTP Basic Authentication using a [RADIUS](https://en.wikipedia.org/wiki/RADIUS) server.
 
@@ -14,21 +14,17 @@ Successful authentications are cached in a local BoltDB file to reduce repeat RA
 ### Authentication flow
 
 ```
-+------------+    +---------------+    +------------+    +--------+
-|HTTP request|--->| secured path? |--->|  cached?   |--->| RADIUS |
-+------------+    +-------+-------+    +-----+------+    +---+----+
-                          |no               |yes              |Accept
-                          v                 v                 v
-                    +----------+      +----------+      +----------+
-                    |  Grant   |      |  Grant   |      |  Grant   |
-                    |  Access  |      |  Access  |      |  Access  |
-                    +----------+      +----------+      +----------+
-                                                             |Reject
-                                                             v
-                                                       +----------+
-                                                       | 401      |
-                                                       | Unauth.  |
-                                                       +----------+
+                                         credentials
+  ┌────────────────┐  secured  ┌──────────────────┐   miss    ┌───────────────┐
+  │  HTTP request  │──path?───▶│ credential cache │──────────▶│ RADIUS server │
+  └───────┬────────┘           └────────┬─────────┘           └──────┬────────┘
+          │ unsecured                   │ hit                 Accept │
+          │                             ▼                            │  Reject
+          │                    ┌─────────────────┐◀──────────────────┘     │
+          └───────────────────▶│  200 OK / next  │           ┌─────────────▼────┐
+                               └─────────────────┘           │ 401 Unauthorized │
+                                                             │ WWW-Authenticate │
+                                                             └──────────────────┘
 ```
 
 ## Installation
@@ -91,8 +87,8 @@ example.com {
 
 ## Tested against
 
-- FreeRADIUS 3.x
-- CiscoSecure ACS 5.4
+- FreeRADIUS 3.2.8
+- ~~CiscoSecure ACS 5.4~~
 
 ## DISCLAIMER
 
