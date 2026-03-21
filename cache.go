@@ -5,115 +5,93 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/boltdb/bolt"
+	bolt "go.etcd.io/bbolt"
 	"golang.org/x/crypto/bcrypt"
 )
 
-type user struct {
+var bucketName = []byte("users")
+
+type cachedUser struct {
 	Hash []byte    `json:"hash"`
 	TTL  time.Time `json:"ttl"`
 }
 
-func cacheWrite(r RADIUS, username string, password string) error {
-	db := r.db
-	err := db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("users"))
-		crypt, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-
-		u := user{crypt, time.Now().UTC()}
-		val, _ := json.Marshal(u)
-
-		err := b.Put([]byte(username), val)
+// openCacheDB opens (or creates) the BoltDB cache file at dir/radiusauth.db.
+func openCacheDB(dir string) (*bolt.DB, error) {
+	path := dir + "/radiusauth.db"
+	db, err := bolt.Open(path, 0600, &bolt.Options{Timeout: 1 * time.Second})
+	if err != nil {
+		return nil, err
+	}
+	return db, db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists(bucketName)
 		return err
 	})
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
-func cacheSeek(r RADIUS, username string, password string) (bool, error) {
-
-	db := r.db
-	u := user{}
-
-	if r.Config.cachetimeout == 0 {
-		return false, fmt.Errorf("[radiusauth] User caching disabled, force RADIUS auth")
+func cacheWrite(ra RadiusAuth, username, password string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
 	}
-	// Look for username in BoltDB cache
-	err := db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("users"))
-		v := b.Get([]byte(username))
-		// If usenrame (key) not found
-		if v == nil {
-			return fmt.Errorf("[radiusauth] User: %s NOT FOUND in cache", username)
-		}
-		// Unmarshal value v into user{hash, ttl}
-		json.Unmarshal(v, &u)
-
-		// Compare provided Basic Auth password to cached bcrypt Hash
-		// if different error
-		err2 := bcrypt.CompareHashAndPassword(u.Hash, []byte(password))
-		if err2 != nil {
-			return fmt.Errorf("[radiusauth] bcrypt hash DOES NOT match for %s, force RADIUS auth", username)
-		}
-		return nil
+	val, err := json.Marshal(cachedUser{Hash: hash, TTL: time.Now().UTC()})
+	if err != nil {
+		return err
+	}
+	return ra.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketName).Put([]byte(username), val)
 	})
-	// if username not found or password mismatch in cache return false, and err
-	if err != nil {
-		return false, err
+}
+
+func cacheSeek(ra RadiusAuth, username, password string) (bool, error) {
+	if ra.CacheTimeout == 0 {
+		return false, fmt.Errorf("caching disabled")
 	}
 
-	// Check if cache entry is older than cachetimeout
-	// If entry is older, delete entry and return false
-	//  to force a new RADIUS authentication
-	age := time.Since(u.TTL)
-	if age > r.Config.cachetimeout {
-		delerr := cacheDelete(r, username)
-		if delerr != nil {
-			panic(err)
+	var u cachedUser
+	err := ra.db.View(func(tx *bolt.Tx) error {
+		v := tx.Bucket(bucketName).Get([]byte(username))
+		if v == nil {
+			return fmt.Errorf("user %s not in cache", username)
 		}
-		return false, fmt.Errorf("[radiusauth] cache expired for %s, force RADIUS auth", username)
-	}
-
-	// Handle any other errors
+		if err := json.Unmarshal(v, &u); err != nil {
+			return err
+		}
+		return bcrypt.CompareHashAndPassword(u.Hash, []byte(password))
+	})
 	if err != nil {
 		return false, err
 	}
+
+	if time.Since(u.TTL) > time.Duration(ra.CacheTimeout) {
+		_ = cacheDelete(ra, username)
+		return false, fmt.Errorf("cache expired for %s", username)
+	}
+
 	return true, nil
 }
 
-func cacheDelete(r RADIUS, username string) error {
-	db := r.db
-	db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("users"))
-		err := b.Delete([]byte(username))
-		// If username (key) not found
-		if err == nil {
-			return fmt.Errorf("[radiusauth] DELETE User: %s NOT FOUND in cache", username)
-		}
-		return nil
+func cacheDelete(ra RadiusAuth, username string) error {
+	return ra.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketName).Delete([]byte(username))
 	})
-	return nil
 }
 
-func cachePurge(db *bolt.DB) (int, error) {
+// cachePurge removes entries older than timeout and returns the count deleted.
+func cachePurge(db *bolt.DB, timeout time.Duration) (int, error) {
 	var count int
-	u := user{}
-	err := db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("users"))
-		if err := b.ForEach(func(k, v []byte) error {
-			json.Unmarshal(v, &u)
-			age := time.Since(u.TTL)
-			if age > 10*time.Minute {
-				b.Delete(k)
+	return count, db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketName)
+		return b.ForEach(func(k, v []byte) error {
+			var u cachedUser
+			if err := json.Unmarshal(v, &u); err != nil {
+				return nil // skip malformed entries
+			}
+			if time.Since(u.TTL) > timeout {
 				count++
+				return b.Delete(k)
 			}
 			return nil
-		}); err != nil {
-			return err
-		}
-		return nil
+		})
 	})
-	return count, err
 }
