@@ -1,80 +1,99 @@
 # caddy-radius
-[![GoDoc](https://godoc.org/github.com/jamesboswell/caddy-radius?status.svg)](https://godoc.org/github.com/jamesboswell/caddy-radius) [![Build Status](https://travis-ci.org/jamesboswell/caddy-radius.svg?branch=master)](https://travis-ci.org/jamesboswell/caddy-radius)
 
-caddy-radius is a [Caddy](https://caddyserver.com/) plugin that implements
-HTTP Basic Access Authentication using a [RADIUS](https://en.wikipedia.org/wiki/RADIUS) server for user authentications.
+[![Go Reference](https://pkg.go.dev/badge/github.com/jamesboswell/caddy-radius.svg)](https://pkg.go.dev/github.com/jamesboswell/caddy-radius)
+[![CI](https://github.com/jamesboswell/caddy-radius/actions/workflows/ci.yml/badge.svg)](https://github.com/jamesboswell/caddy-radius/actions/workflows/ci.yml)
 
-When a user requests a resource that is protected, the browser will prompt for a username and password if they have not already supplied one.  The user credentials are sent to a configured RADIUS server for authentication.  Upon successful RADIUS authentication (Access-Accept), the server will grant access to the resource.
-> NOTE:  RADIUS has relatively weak security. Communication between the Caddy server and the RADIUS server should be on trusted networks or separately secured via IPsec or other mechanisms which are outside the scope of this plugin.
+caddy-radius is a [Caddy v2](https://caddyserver.com/) plugin that provides HTTP Basic Authentication using a [RADIUS](https://en.wikipedia.org/wiki/RADIUS) server.
 
-After a successful RADIUS authentication, credentials are stored in a local cache with a cache TTL in seconds as configured in caddyfile (`cachetimeout`).  Subsequent HTTP requests will use the cached entry, reducing load on the RADIUS servers as well as response time to HTTP requests.
+When a browser requests a protected resource, it prompts for credentials. Those credentials are sent to a configured RADIUS server. On `Access-Accept` the request is forwarded; on `Access-Reject` a `401 Unauthorized` is returned.
 
-When cached entries are older than `cachetimeout` a new RADIUS authentication will be performed.
+> **Security note:** RADIUS uses MD5-based packet authentication. The link between Caddy and the RADIUS server should be on a trusted network, or secured separately (e.g. IPsec).
 
-If Authorization headers DO NOT match the cached entry for a particular user, a fresh RADIUS authentication will be performed.
+Successful authentications are cached in a local BoltDB file to reduce repeat RADIUS round-trips. Subsequent requests check the cache first; only a cache miss or an expired entry causes a new RADIUS exchange.
 
-### Authentication flow diagram
+### Authentication flow
+
 ```
-                                    +-------------+                                 
-                                    |HTTP 401     |--------------------------+      
-                                    |Unauthorized |                          |      
-                                    +-------------+                          |      
-                                                                      Reject |      
-                                                                             |      
-+------------+      +---------------+          +------------+        +--------+
-|HTTP request|------| secured path? |---------+|   cached?  |--------| RADIUS |
-+------------+      +-------|-------+ yes      +------------+ no     +--------+
-                            |                         |                      |      
-                            |                         |                      |      
-                            |no                    yes|               Accept |      
-                            |                         |                      |      
-                            |                         |                      |      
-                      +-----|------+                  |                      |      
-                      |  Grant     |------------------+                      |      
-                      |  Access    |-----------------------------------------+
-                      +------------+
++------------+    +---------------+    +------------+    +--------+
+|HTTP request|--->| secured path? |--->|  cached?   |--->| RADIUS |
++------------+    +-------+-------+    +-----+------+    +---+----+
+                          |no               |yes              |Accept
+                          v                 v                 v
+                    +----------+      +----------+      +----------+
+                    |  Grant   |      |  Grant   |      |  Grant   |
+                    |  Access  |      |  Access  |      |  Access  |
+                    +----------+      +----------+      +----------+
+                                                             |Reject
+                                                             v
+                                                       +----------+
+                                                       | 401      |
+                                                       | Unauth.  |
+                                                       +----------+
 ```
 
-### RADIUS servers
-caddy-radius has been tested against CiscoSecure ACS 5.4 and FreeRADIUS 3.0.13
+## Installation
 
+Use [xcaddy](https://github.com/caddyserver/xcaddy):
 
-### Caddyfile
-Add a **radiusauth** term to your caddyfile
+```sh
+xcaddy build --with github.com/jamesboswell/caddy-radius
 ```
-radiusauth {
-        server 192.0.2.10:1812 192.0.2.90:1812
-        secret SuperAWesomeSecret
-        realm  "RADIUS Auth"
-        except /public /assets /images
-        cache  /var/cache
-        cachetimeout 300
+
+## Caddyfile syntax
+
+```caddyfile
+{
+    order radiusauth before respond
+}
+
+example.com {
+    radiusauth {
+        server  192.0.2.10:1812 192.0.2.90:1812
+        secret  SuperSecretSharedSecret
+        realm   "ACME Corp"
+        except  /public /assets /health
+        cache   /var/lib/caddy
+        cache_timeout 5m
+    }
+
+    respond "Hello, world!" 200
 }
 ```
-* server - RADIUS server(s) in host:port format
-* secret - RADIUS shared secret
-* realm  - Basic Auth realm message (ex: ACME Inc.)
-* except - path(s) to NOT enable authentication on
-* only   - path(s) to ONLY enable authenticaiton on
-* cache  - location to store cache file
-* cachetimeout - time in seconds authentication entries should be cached
-* nasid  - manually set the RADIUS NAS-ID (default is os hostname)
 
-> Filtering:
-You can only have `except` OR `only` but not both! Whitelist your 'exceptions' OR blacklist your 'only' paths to filter
+### Directive options
 
-## TODO:
-- [x] Implement RADIUS server failover
-- [ ] allow disabling of cache
-- [ ] Windows testing
-- [x] finish path filtering (needs more testing)
-- [x] every HTTP GET is a RADIUS transaction, need to reduce
-  * ~~implement some kind of cache~~
-    * ~~bcrypt hash of user/password that expires at X minutes~~
+| Option | Description |
+|---|---|
+| `server` | One or more RADIUS server addresses in `host:port` format. Tried in order; first response wins. |
+| `secret` | RADIUS shared secret. |
+| `realm` | Value for the `WWW-Authenticate: Basic realm=` header. Default: `Restricted`. |
+| `nas_id` | RADIUS `NAS-Identifier` attribute. Default: system hostname. |
+| `except` | Space-separated path prefixes to **exclude** from authentication. Cannot be combined with `only`. |
+| `only` | Space-separated path prefixes to **require** authentication on. Cannot be combined with `except`. |
+| `cache` | Directory for the BoltDB credential cache file (`radiusauth.db`). Required when `cache_timeout > 0`. |
+| `cache_timeout` | How long to cache a successful authentication. Accepts Go duration strings (`5m`, `1h`) or plain integer seconds for backwards compatibility. `0` disables caching. |
 
-#### Inspired by
-caddy-radius draws on ideas from  [mod_auth_xradius](http://www.outoforder.cc/projects/httpd/mod_auth_xradius/) for Apache which inspired it's creation
+## JSON config
 
+```json
+{
+  "handler": "radiusauth",
+  "servers": ["192.0.2.10:1812", "192.0.2.90:1812"],
+  "secret": "SuperSecretSharedSecret",
+  "realm": "ACME Corp",
+  "except": ["/public", "/assets", "/health"],
+  "cache_path": "/var/lib/caddy",
+  "cache_timeout": 300000000000
+}
+```
+
+(`cache_timeout` is in nanoseconds in JSON — `300000000000` = 5 minutes.)
+
+## Tested against
+
+- FreeRADIUS 3.x
+- CiscoSecure ACS 5.4
 
 ## DISCLAIMER
-This software is provided as is for free and public use.  No warranties or claims of quality or security are made.  Users should perform their own security analysis and acknowledge and accept the risks as stated.
+
+This software is provided as-is. No warranties or claims of quality or security are made. Perform your own security analysis and accept the risks accordingly.
