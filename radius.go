@@ -236,12 +236,13 @@ func (ra RadiusAuth) radiusAuth(username, password string) (bool, error) {
 	rfc2865.UserPassword_SetString(packet, password)
 	rfc2865.NASIdentifier_SetString(packet, ra.NASID)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
+	// Per-server timeout ensures each server gets its own time budget.
+	// A single shared timeout would let one slow server starve failover.
 	var lastErr error
 	for _, server := range ra.Servers {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		reply, err := radius.Exchange(ctx, packet, server)
+		cancel()
 		if err != nil {
 			ra.logger.Warn("RADIUS server unreachable", zap.String("server", server), zap.Error(err))
 			lastErr = err
