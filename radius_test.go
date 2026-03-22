@@ -344,7 +344,8 @@ func TestIgnoredPathFilter(t *testing.T) {
 		{"/public", false},
 		{"/public/file.js", false},
 		{"/health", false},
-		{"/healthz", false}, // HasPrefix: /healthz starts with /health
+		{"/health/check", false},
+		{"/healthz", true}, // segment-aware: /healthz is not under /health
 	}
 	for _, tc := range cases {
 		r := httptest.NewRequest(http.MethodGet, tc.path, nil)
@@ -366,7 +367,7 @@ func TestSecuredPathFilter(t *testing.T) {
 		{"/admin", true},
 		{"/admin/users", true},
 		{"/api/v1", true},
-		{"/apiold", true}, // HasPrefix match
+		{"/apiold", false}, // segment-aware: /apiold is not under /api
 	}
 	for _, tc := range cases {
 		r := httptest.NewRequest(http.MethodGet, tc.path, nil)
