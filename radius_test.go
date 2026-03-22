@@ -186,6 +186,32 @@ func TestServeHTTP_OnlyPath_AuthenticatesMatched(t *testing.T) {
 	}
 }
 
+func TestServeHTTP_FailoverToSecondServer(t *testing.T) {
+	// First server is an address that will timeout (nothing listening).
+	// Second server is the working mock. With per-server timeouts, the
+	// second server should still respond within its own 5s budget.
+	deadAddr := "127.0.0.1:19999" // nothing listening here
+	liveAddr, shutdown := startMockRADIUS(t, "secret")
+	defer shutdown()
+
+	cfg := &RadiusAuth{
+		Servers:       []string{deadAddr, liveAddr},
+		Secret:        "secret",
+		MaxFailures:   testMaxFailures,
+		FailureWindow: testFailureWindow,
+	}
+	ra := newProvisioned(t, cfg)
+
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.SetBasicAuth("alice", "alice")
+	w := httptest.NewRecorder()
+	ra.ServeHTTP(w, r, okHandler)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("failover: got %d, want 200", w.Code)
+	}
+}
+
 func TestServeHTTP_Cache_HitSkipsRADIUS(t *testing.T) {
 	dir := t.TempDir()
 	addr, shutdown := startMockRADIUS(t, "secret")
