@@ -57,9 +57,20 @@ type RadiusAuth struct {
 	// Paths to require authentication on. Cannot be combined with ExceptPaths.
 	OnlyPaths []string `json:"only,omitempty"`
 
+	// Maximum failed authentication attempts per IP within FailureWindow.
+	// Required — protects RADIUS infrastructure from brute-force flooding.
+	MaxFailures int `json:"max_failures"`
+
+	// Time window in which failures are counted (e.g. "1m").
+	// Required — protects RADIUS infrastructure from brute-force flooding.
+	FailureWindow caddy.Duration `json:"failure_window"`
+
 	db            *bolt.DB
 	requestFilter filter
 	logger        *zap.Logger
+	// limiter MUST be a pointer so the value-receiver ServeHTTP (which
+	// copies RadiusAuth per request) shares the same map and mutex.
+	limiter *rateLimiter
 }
 
 // CaddyModule returns the Caddy module information.
@@ -111,6 +122,12 @@ func (ra *RadiusAuth) Provision(ctx caddy.Context) error {
 		}
 	}
 
+	ra.limiter = &rateLimiter{
+		failures: make(map[string]*failRecord),
+		stop:     make(chan struct{}),
+	}
+	go ra.limiter.cleanupLoop(time.Duration(ra.FailureWindow))
+
 	return nil
 }
 
@@ -130,11 +147,20 @@ func (ra *RadiusAuth) Validate() error {
 	if len(ra.ExceptPaths) > 0 && len(ra.OnlyPaths) > 0 {
 		return errors.New("cannot use both 'except' and 'only' path filters")
 	}
+	if ra.MaxFailures <= 0 {
+		return errors.New("max_failures is required and must be > 0 (brute-force protection)")
+	}
+	if ra.FailureWindow <= 0 {
+		return errors.New("failure_window is required and must be > 0 (brute-force protection)")
+	}
 	return nil
 }
 
-// Cleanup closes the BoltDB connection when the module is unloaded.
+// Cleanup stops the rate-limiter goroutine and closes the BoltDB connection.
 func (ra *RadiusAuth) Cleanup() error {
+	if ra.limiter != nil {
+		close(ra.limiter.stop)
+	}
 	if ra.db != nil {
 		return ra.db.Close()
 	}
@@ -145,6 +171,16 @@ func (ra *RadiusAuth) Cleanup() error {
 func (ra RadiusAuth) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 	if ra.requestFilter != nil && !ra.requestFilter.shouldAuthenticate(r) {
 		return next.ServeHTTP(w, r)
+	}
+
+	// Rate-limit check runs BEFORE parsing credentials to avoid leaking
+	// timing information and to reject blocked IPs as cheaply as possible.
+	ip := extractIP(r.RemoteAddr)
+	if ra.limiter.isBlocked(ip, ra.MaxFailures, time.Duration(ra.FailureWindow)) {
+		ra.logger.Warn("rate limited", zap.String("ip", ip))
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(http.StatusTooManyRequests)
+		return nil
 	}
 
 	username, password, ok := r.BasicAuth()
@@ -161,6 +197,7 @@ func (ra RadiusAuth) ServeHTTP(w http.ResponseWriter, r *http.Request, next cadd
 		cached, err := cacheSeek(ra, username, password)
 		if cached {
 			ra.logger.Debug("cache hit", zap.String("user", username))
+			ra.limiter.clearFailures(ip)
 			return next.ServeHTTP(w, r)
 		}
 		if err != nil {
@@ -174,10 +211,13 @@ func (ra RadiusAuth) ServeHTTP(w http.ResponseWriter, r *http.Request, next cadd
 	}
 
 	if !authenticated {
+		ra.limiter.recordFailure(ip, time.Duration(ra.FailureWindow))
 		w.Header().Set("WWW-Authenticate", realm)
 		w.WriteHeader(http.StatusUnauthorized)
 		return nil
 	}
+
+	ra.limiter.clearFailures(ip)
 
 	if ra.db != nil && ra.CacheTimeout > 0 {
 		if err := cacheWrite(ra, username, password); err != nil {
