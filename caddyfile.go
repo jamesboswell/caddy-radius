@@ -2,6 +2,7 @@ package radiusauth
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,6 +90,30 @@ func (ra *RadiusAuth) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.ArgErr()
 				}
 				ra.OnlyPaths = append(ra.OnlyPaths, paths...)
+
+			case "max_failures":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				n, err := strconv.Atoi(d.Val())
+				if err != nil || n <= 0 {
+					return d.Errf("max_failures must be a positive integer, got %q", d.Val())
+				}
+				ra.MaxFailures = n
+
+			case "failure_window":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				t, err := time.ParseDuration(d.Val())
+				if err != nil {
+					var secs int
+					if _, serr := fmt.Sscanf(d.Val(), "%d", &secs); serr != nil {
+						return d.Errf("invalid failure_window %q: %v", d.Val(), err)
+					}
+					t = time.Duration(secs) * time.Second
+				}
+				ra.FailureWindow = caddy.Duration(t)
 
 			default:
 				return d.Errf("unknown radiusauth option: %s", d.Val())

@@ -19,7 +19,7 @@ type ignoredPathFilter struct {
 
 func (s *securedPathFilter) shouldAuthenticate(r *http.Request) bool {
 	for _, p := range s.securedPaths {
-		if strings.HasPrefix(r.URL.Path, p) {
+		if pathMatches(r.URL.Path, p) {
 			return true
 		}
 	}
@@ -28,9 +28,20 @@ func (s *securedPathFilter) shouldAuthenticate(r *http.Request) bool {
 
 func (i *ignoredPathFilter) shouldAuthenticate(r *http.Request) bool {
 	for _, p := range i.ignoredPaths {
-		if strings.HasPrefix(r.URL.Path, p) {
+		if pathMatches(r.URL.Path, p) {
 			return false
 		}
 	}
 	return true
+}
+
+// pathMatches reports whether requestPath falls under prefix in a
+// path-segment-aware way. "/admin" matches "/admin" and "/admin/panel"
+// but not "/administrator".
+func pathMatches(requestPath, prefix string) bool {
+	if !strings.HasPrefix(requestPath, prefix) {
+		return false
+	}
+	// Exact match or the next character is a slash (segment boundary).
+	return len(requestPath) == len(prefix) || requestPath[len(prefix)] == '/'
 }
