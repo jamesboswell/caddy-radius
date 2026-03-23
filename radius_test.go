@@ -90,6 +90,30 @@ func testRA(addr, secret string) *RadiusAuth {
 	}
 }
 
+// ── Provision tests ──────────────────────────────────────────────────────────
+
+func TestProvision_RealmQuotesStripped(t *testing.T) {
+	addr, shutdown := startMockRADIUS(t, "secret")
+	defer shutdown()
+
+	cfg := testRA(addr, "secret")
+	cfg.Realm = `Evil "realm", charset="UTF-8`
+	ra := newProvisioned(t, cfg)
+
+	if strings.Contains(ra.Realm, `"`) {
+		t.Errorf("realm should have quotes stripped, got %q", ra.Realm)
+	}
+
+	// Verify the header is well-formed when used
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	ra.ServeHTTP(w, r, okHandler)
+	hdr := w.Header().Get("WWW-Authenticate")
+	if !strings.HasPrefix(hdr, `Basic realm="`) || !strings.HasSuffix(hdr, `"`) {
+		t.Errorf("malformed WWW-Authenticate: %q", hdr)
+	}
+}
+
 // ── ServeHTTP integration tests ──────────────────────────────────────────────
 
 func TestServeHTTP_NoCreds_Returns401(t *testing.T) {

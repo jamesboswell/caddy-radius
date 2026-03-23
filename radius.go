@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -88,6 +89,10 @@ func (ra *RadiusAuth) Provision(ctx caddy.Context) error {
 	if ra.Realm == "" {
 		ra.Realm = "Restricted"
 	}
+	// Strip quotes to prevent WWW-Authenticate header value injection.
+	// The realm is placed inside Basic realm="...", so embedded quotes
+	// could break the header or inject extra parameters.
+	ra.Realm = strings.ReplaceAll(ra.Realm, `"`, "")
 
 	if ra.NASID == "" {
 		hostname, err := os.Hostname()
